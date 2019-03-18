@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<!-- saved from url=(0046)https://www.cnblogs.com/jiyukai/p/6665199.html -->
+<html lang="zh-cn"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="origin">
+    <title>JVM内存结构分析 - 纪煜楷 - 博客园</title>
+<meta property="og:description" content="对于Java程序员来说，内存是由JVM自动管理的，所以一旦出现内存泄漏或溢出的问题，不了解JVM的内存结构和各个内存区域的工作职责，将对解决问题带来很大的麻烦，本文参照周志明的《深入理解Java虚拟机">
+    <link type="text/css" rel="stylesheet" href="./JVM内存结构分析 - 纪煜楷 - 博客园_files/blog-common.css">
+<link id="MainCss" type="text/css" rel="stylesheet" href="./JVM内存结构分析 - 纪煜楷 - 博客园_files/bundle-CodingLife.css">
+<link id="mobile-style" media="only screen and (max-width: 767px)" type="text/css" rel="stylesheet" href="./JVM内存结构分析 - 纪煜楷 - 博客园_files/bundle-CodingLife-mobile.css">
+    <link title="RSS" type="application/rss+xml" rel="alternate" href="https://www.cnblogs.com/jiyukai/rss">
+    <link title="RSD" type="application/rsd+xml" rel="EditURI" href="https://www.cnblogs.com/jiyukai/rsd.xml">
+<link type="application/wlwmanifest+xml" rel="wlwmanifest" href="https://www.cnblogs.com/jiyukai/wlwmanifest.xml">
+    <script async="" src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/analytics.js"></script><script src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/jquery-2.2.0.min.js"></script><style type="text/css" abt="234"></style>
+    <script>var currentBlogId=344252;var currentBlogApp='jiyukai',cb_enable_mathjax=false;var isLogined=false;</script>
+    <script src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/blog-common.js" type="text/javascript"></script>
+<script>//remove 17173 video ad
+doAdblock();
+function doAdblock(){
+    (function() {
+        function A() {}
+        A.prototype = {
+            rules: {
+                '17173_in':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/PreloaderFile(Customer)?\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173_in_20150522.swf"
+                },
+                '17173_out':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/PreloaderFileFirstpage\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173_out_20150522.swf"
+                },
+                '17173_live':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/Player_stream(_firstpage)?\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173_stream_20150522.swf"
+                },
+                '17173_live_out':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/Player_stream_(custom)?Out\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173.out.Live.swf"
+                }
+            },
+            _done: null,
+            get done() {
+                if(!this._done) {
+                    this._done = new Array();
+                }
+                return this._done;
+            },
+            addAnimations: function() {
+                var style = document.createElement('style');
+                style.type = 'text/css';
+                style.innerHTML = 'object,embed{\
+                -webkit-animation-duration:.001s;-webkit-animation-name:playerInserted;\
+                -ms-animation-duration:.001s;-ms-animation-name:playerInserted;\
+                -o-animation-duration:.001s;-o-animation-name:playerInserted;\
+                animation-duration:.001s;animation-name:playerInserted;}\
+                @-webkit-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}\
+                @-ms-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}\
+                @-o-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}\
+                @keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}';
+                document.getElementsByTagName('head')[0].appendChild(style);
+            },
+            animationsHandler: function(e) {
+                if(e.animationName === 'playerInserted') {
+                    this.replace(e.target);
+                }
+            },
+            replace: function(elem) {
+                if(this.done.indexOf(elem) != -1) return;
+                this.done.push(elem);
+                var player = elem.data || elem.src;
+                if(!player) return;
+                var i, find, replace = false;
+                for(i in this.rules) {
+                    find = this.rules[i]['find'];
+                    if(find.test(player)) {
+                        replace = this.rules[i]['replace'];
+                        if('function' === typeof this.rules[i]['preHandle']) {
+                            this.rules[i]['preHandle'].bind(this, elem, find, replace, player)();
+                        }else{
+                            this.reallyReplace.bind(this, elem, find, replace)();
+                        }
+                        break;
+                    }
+                }
+            },
+            reallyReplace: function(elem, find, replace) {
+                elem.data && (elem.data = elem.data.replace(find, replace)) || elem.src && ((elem.src = elem.src.replace(find, replace)) && (elem.style.display = 'block'));
+                var b = elem.querySelector("param[name='movie']");
+                this.reloadPlugin(elem);
+            },
+            reloadPlugin: function(elem) {
+                var nextSibling = elem.nextSibling;
+                var parentNode = elem.parentNode;
+                parentNode.removeChild(elem);
+                var newElem = elem.cloneNode(true);
+                this.done.push(newElem);
+                if(nextSibling) {
+                    parentNode.insertBefore(newElem, nextSibling);
+                } else {
+                    parentNode.appendChild(newElem);
+                }
+            },
+            init: function() {
+                var handler = this.animationsHandler.bind(this);
+                document.body.addEventListener('webkitAnimationStart', handler, false);
+                document.body.addEventListener('msAnimationStart', handler, false);
+                document.body.addEventListener('oAnimationStart', handler, false);
+                document.body.addEventListener('animationstart', handler, false);
+                this.addAnimations();
+            }
+        };
+        new A().init();
+    })();
+}
+//remove baidu search ad
+if(document.URL.indexOf('www.baidu.com') >= 0){
+    if(document && document.getElementsByTagName && document.getElementById && document.body){
+        var aa = function(){
+            var all = document.body.querySelectorAll("#content_left div,#content_left table");
+            for(var i = 0; i < all.length; i++){
+                if(/display:\s?(table|block)\s!important/.test(all[i].getAttribute("style"))){all[i].style.display= "none";all[i].style.visibility='hidden';}
+            }
+            all = document.body.querySelectorAll('.result.c-container[id="1"]');
+            //if(all.length == 1) return;
+            for(var i = 0; i < all.length; i++){
+                if(all[i].innerHTML && all[i].innerHTML.indexOf('广告')>-1){
+                    all[i].style.display= "none";all[i].style.visibility='hidden';
+                }
+            }
+        }
+        aa();
+        document.getElementById('wrapper_wrapper').addEventListener('DOMSubtreeModified',aa)
+    };
+}
+//remove sohu video ad
+if (document.URL.indexOf("tv.sohu.com") >= 0){
+    if (document.cookie.indexOf("fee_status=true")==-1){document.cookie='fee_status=true'};
+}
+//remove 56.com video ad
+if (document.URL.indexOf("56.com") >= 0){
+    if (document.cookie.indexOf("fee_status=true")==-1){document.cookie='fee_status=true'};
+}
+//fore iqiyi enable html5 player function
+if (document.URL.indexOf("iqiyi.com") >= 0){
+    if (document.cookie.indexOf("player_forcedType=h5_VOD")==-1){
+        document.cookie='player_forcedType=h5_VOD'
+        if(localStorage.reloadTime && Date.now() - parseInt(localStorage.reloadTime)<60000){
+            console.log('no reload')
+        }else{
+            location.reload()
+            localStorage.reloadTime = Date.now();
+        }
+    }
+}
+</script><style type="text/css">object,embed{                -webkit-animation-duration:.001s;-webkit-animation-name:playerInserted;                -ms-animation-duration:.001s;-ms-animation-name:playerInserted;                -o-animation-duration:.001s;-o-animation-name:playerInserted;                animation-duration:.001s;animation-name:playerInserted;}                @-webkit-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}                @-ms-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}                @-o-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}                @keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}</style></head><style type="text/css" id="1205326371000"></style>
+<body>
+<a name="top"></a>
+
+
+<!--done-->
+<div id="home">
+<div id="header">
+	<div id="blogTitle">
+	<a id="lnkBlogLogo" href="https://www.cnblogs.com/jiyukai/"><img id="blogLogo" src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/logo.gif" alt="返回主页"></a>			
+		
+<!--done-->
+<h1><a id="Header1_HeaderTitle" class="headermaintitle" href="https://www.cnblogs.com/jiyukai/">纪煜楷</a></h1>
+<h2></h2>
+
+
+
+		
+	</div><!--end: blogTitle 博客的标题和副标题 -->
+	<div id="navigator">
+		
+<ul id="navList">
+<li><a id="blog_nav_sitehome" class="menu" href="https://www.cnblogs.com/">博客园</a></li>
+<li><a id="blog_nav_myhome" class="menu" href="https://www.cnblogs.com/jiyukai/">首页</a></li>
+<li><a id="blog_nav_newpost" class="menu" rel="nofollow" href="https://i.cnblogs.com/EditPosts.aspx?opt=1">新随笔</a></li>
+<li><a id="blog_nav_contact" class="menu" rel="nofollow" href="https://msg.cnblogs.com/send/%E7%BA%AA%E7%85%9C%E6%A5%B7">联系</a></li>
+<li><a id="blog_nav_rss" class="menu" href="https://www.cnblogs.com/jiyukai/rss">订阅</a>
+<!--<a id="blog_nav_rss_image" class="aHeaderXML" href="https://www.cnblogs.com/jiyukai/rss"><img src="//www.cnblogs.com/images/xml.gif" alt="订阅" /></a>--></li>
+<li><a id="blog_nav_admin" class="menu" rel="nofollow" href="https://i.cnblogs.com/">管理</a></li>
+</ul>
+		<div class="blogStats">
+			
+			<div id="blog_stats">
+<span id="stats_post_count">随笔 - 80&nbsp; </span>
+<span id="stats_article_count">文章 - 0&nbsp; </span>
+<span id="stats-comment_count">评论 - 5</span>
+</div>
+			
+		</div><!--end: blogStats -->
+	</div><!--end: navigator 博客导航栏 -->
+</div><!--end: header 头部 -->
+
+<div id="main">
+	<div id="mainContent">
+	<div class="forFlow">
+		
+        <div id="post_detail">
+<!--done-->
+<div id="topics">
+	<div class="post">
+		<h1 class="postTitle">
+			<a id="cb_post_title_url" class="postTitle2" href="https://www.cnblogs.com/jiyukai/p/6665199.html">JVM内存结构分析</a>
+		</h1>
+		<div class="clear"></div>
+		<div class="postBody">
+			<div id="cnblogs_post_body" class="blogpost-body"><p><strong>　　</strong>对于Java程序员来说，内存是由JVM自动管理的，所以一旦出现内存泄漏或溢出的问题，不了解JVM的内存结构和各个内存区域的工作职责，将对解决问题带来很大的麻烦，本文参照周志明的《深入理解Java虚拟机》，介绍JVM的内存结构，比较枯燥，但对知其然，不知所以然的编码人员来说还是有一定帮助的。</p>
+<p>　　按照Java虚拟机规范的规定，JVM自动管理的内存将会包括以下几个运行时数据区域。</p>
+<p><strong>　　　<img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/1135193-20170404105818910-121962267.jpg" alt=""></strong></p>
+<p><strong>　　程序计数器</strong></p>
+<p><strong>　　</strong>程序计数器（Program Counter Register）是JVM中一块较小的内存区域，保存着当前线程执行的虚拟机字节码指令的内存地址。Java多线程的实现，其实是通过线程间的轮流切换并分配处理器执行时间的方式来实现的，在任何时刻，处理器都只会执行一个线程中的指令。在多线程场景下，为了保证线程切换回来后，还能恢复到原先状态，找到原先执行的指令，所以每个线程都会设立一个程序计数器，并且各个线程之间不会互相影响，程序计数器为"线程私有"的内存区域。</p>
+<p>　　如果当前线程正在执行Java方法，则程序计数器保存的是虚拟机字节码的内存地址，如果正在执行的是Native方法（非Java方法，JVM底层有许多非Java编写的函数实现），计数器则为空。程序计数器是唯一一个在Java规范中没有规定任何OutOfMemory场景的区域。</p>
+<p>　<strong>　虚拟机栈</strong></p>
+<p>　　虚拟机栈（Java Virtual Machine Stacks）和线程是紧密联系的，每创建一个线程时就会对应创建一个Java栈，所以Java栈也是"线程私有"的内存区域，这个栈中又会对应包含多个栈帧，每调用一个方法时就会往栈中创建并压入一个栈帧，栈帧是用来存储方法数据和部分过程结果的数据结构，每一个方法从调用到最终返回结果的过程，就对应一个栈帧从入栈到出栈的过程。</p>
+<p>　　虚拟机栈是一个后入先出的数据结构，线程运行过程中，只有一个栈帧是处于活跃状态的，被称为"当前活动帧栈"，当前活动帧栈始终是虚拟机栈的栈顶元素。</p>
+<p>　　<img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/1135193-20170403165214707-670478299.png" alt=""></p>
+<p>　　<strong>本地方法栈</strong></p>
+<p><strong>　　</strong>本地方法栈（Native Method Stack）和虚拟机栈的作用相似，不过虚拟机栈是为Java方法服务的，而本地方法栈是为Native方法服务的。</p>
+<p>　　<strong>方法区</strong></p>
+<p><strong>　　</strong>方法区（Method Area）是用于存储类结构信息的地方，包括常量池、静态变量、构造函数等类型信息，类型信息是由类加载器在类加载时从类文件中提取出来的。</p>
+<p>　　方法区同样存在垃圾收集，因为用户通过自定义加载器加载的一些类同样会成为垃圾，JVM会回收一个未被引用类所占的空间，以使方法区的空间达到最小。</p>
+<p>　　方法区中还存在着常量池，常量池包含着一些常量和符号引用（加载类的连接阶段中的解析过程会将符号引用转换为直接引用）。</p>
+<p>　　方法区是线程共享的。</p>
+<p>　　<strong>堆</strong></p>
+<p>　　堆（heap）是存储java实例或者对象的地方，是GC的主要区域，同样是线程共享的内存区域。</p>
+<p>　　<strong>案例分析一</strong></p>
+<p><strong>　　<img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/1135193-20170404143736566-121223886.png" alt=""></strong></p>
+<p>&nbsp;</p>
+<p><strong>　　案例分析二</strong></p>
+<p><strong>　　<img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/1135193-20170404144116847-731418885.png" alt=""></strong></p>
+<p>&nbsp; &nbsp; &nbsp;&nbsp;<img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/1135193-20170404144144082-243346462.png" alt=""></p>
+<p>&nbsp;</p>
+<p>&nbsp;　　上面main方法中运行的程序过程如下：</p>
+<p>　　（1）用户创建了一个Student对象，运行时JVM首先会去方法区寻找该对象的类型信息，没有则使用类加载器classloader将Student.class字节码文件加载至内存中的方法区，并将Student类的类型信息存放至方法区。</p>
+<p>　　（2）接着JVM在堆中为新的Student实例分配内存空间，这个实例持有着指向方法区的Student类型信息的引用，引用指的是类型信息在方法区中的内存地址。</p>
+<p>　　（3）在此运行的JVM进程中，会首先起一个线程跑该用户程序，而创建线程的同时也创建了一个虚拟机栈，虚拟机栈用来跟踪线程运行中的一系列方法调用的过程，每调用一个方法就会创建并往栈中压入一个栈帧，栈帧用来存储方法的参数，局部变量和运算过程的临时数据。上面程序中的stu是对Student的引用，就存放于栈中，并持有指向堆中Student实例的内存地址。</p>
+<p>　　（4）JVM根据stu引用持有的堆中对象的内存地址，定位到堆中的Student实例，由于堆中实例持有指向方法区的Student类型信息的引用，从而获得add()方法的字节码信息，接着执行add()方法包含的指令。</p>
+<p><strong>　　 总结</strong></p>
+<p><strong>　</strong>　 1、所有线程共享的内存数据区：方法区，堆。而虚拟机栈，本地方法栈和程序计数器都是线程私有的。<strong><br></strong></p>
+<p>　　 2、存放于栈中的东西如下：<br>&nbsp;　　　 &nbsp;2.1&nbsp;每个线程包含一个栈区,栈中只保存基础数据类型的对象和自定义对象的引用(不是对象)。对象都存放在堆区中。</p>
+<p>　　　　2.2 每个栈中的数据(基础数据类型和对象引用)都是私有的，其他栈不能访问。<br>&nbsp;　　　 &nbsp;2.3 方法的形式参数，方法调用完后从栈空间回收<br>&nbsp;　　　 &nbsp;2.4 引用对象的地址，引用完后，栈空间地址立即被回收，堆空间等待GC</p>
+<p>　　 3、存放于堆中的东西如下：</p>
+<p>　　　　3.1&nbsp;存储的全部是对象，每个对象包含一个与之对应的class信息</p>
+<p>　　　　3.2 Jvm只有一个堆区（heap）被所有线程共享，堆区中不存放基本类型和对象引用，只存放对象本身</p>
+<p><strong>　　 </strong>4、存放于方法区中的东西如下：</p>
+<p>　　　　4.1&nbsp;存放线程所执行的字节码指令</p>
+<p>　　　　4.2&nbsp;跟堆一样.被所有线程共享.方法区包含：所有的class和static变量</p>
+<p>　　　　4.3 常量池位于方法区中，见如下图示说明</p>
+<p>　　　　<img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/1135193-20170404155530394-1373165997.png" alt=""></p>
+<p>&nbsp;</p></div><div id="MySignature"></div>
+<div class="clear"></div>
+<div id="blog_post_info_block">
+<div id="BlogPostCategory">分类: <a href="https://www.cnblogs.com/jiyukai/category/974036.html" target="_blank">JVM运行机制与原理剖析</a></div>
+<div id="EntryTag"></div>
+<div id="blog_post_info"><div id="green_channel">
+        <a href="javascript:void(0);" id="green_channel_digg" onclick="DiggIt(6665199,cb_blogId,1);green_channel_success(this,&#39;谢谢推荐！&#39;);">好文要顶</a>
+            <a id="green_channel_follow" onclick="follow(&#39;57a621b2-f212-e711-845c-ac853d9f53ac&#39;);" href="javascript:void(0);">关注我</a>
+    <a id="green_channel_favorite" onclick="AddToWz(cb_entryId);return false;" href="javascript:void(0);">收藏该文</a>
+    <a id="green_channel_weibo" href="javascript:void(0);" title="分享至新浪微博" onclick="ShareToTsina()"><img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/icon_weibo_24.png" alt=""></a>
+    <a id="green_channel_wechat" href="javascript:void(0);" title="分享至微信" onclick="shareOnWechat()"><img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/wechat.png" alt=""></a>
+</div>
+<div id="author_profile">
+    <div id="author_profile_info" class="author_profile_info">
+            <a href="http://home.cnblogs.com/u/jiyukai/" target="_blank"><img src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/sample_face.gif" class="author_avatar" alt=""></a>
+        <div id="author_profile_detail" class="author_profile_info">
+            <a href="http://home.cnblogs.com/u/jiyukai/">纪煜楷</a><br>
+            <a href="http://home.cnblogs.com/u/jiyukai/followees">关注 - 0</a><br>
+            <a href="http://home.cnblogs.com/u/jiyukai/followers">粉丝 - 18</a>
+        </div>
+    </div>
+    <div class="clear"></div>
+    <div id="author_profile_honor"></div>
+    <div id="author_profile_follow">
+                <a href="javascript:void(0);" onclick="follow(&#39;57a621b2-f212-e711-845c-ac853d9f53ac&#39;);return false;">+加关注</a>
+    </div>
+</div>
+<div id="div_digg">
+    <div class="diggit" onclick="votePost(6665199,&#39;Digg&#39;)">
+        <span class="diggnum" id="digg_count">2</span>
+    </div>
+    <div class="buryit" onclick="votePost(6665199,&#39;Bury&#39;)">
+        <span class="burynum" id="bury_count">0</span>
+    </div>
+    <div class="clear"></div>
+    <div class="diggword" id="digg_tips">
+    </div>
+</div>
+<script type="text/javascript">
+    currentDiggType = 0;
+</script></div>
+<div class="clear"></div>
+<div id="post_next_prev"><a href="https://www.cnblogs.com/jiyukai/p/6642904.html" class="p_n_p_prefix">« </a> 上一篇：<a href="https://www.cnblogs.com/jiyukai/p/6642904.html" title="发布于2017-03-30 00:47">初识Spring</a><br><a href="https://www.cnblogs.com/jiyukai/p/6691644.html" class="p_n_p_prefix">» </a> 下一篇：<a href="https://www.cnblogs.com/jiyukai/p/6691644.html" title="发布于2017-04-11 00:13">工厂模式</a><br></div>
+</div>
+
+
+		</div>
+		<div class="postDesc">posted @ <span id="post-date">2017-04-04 15:56</span> <a href="https://www.cnblogs.com/jiyukai/">纪煜楷</a> 阅读(<span id="post_view_count">12745</span>) 评论(<span id="post_comment_count">2</span>)  <a href="https://i.cnblogs.com/EditPosts.aspx?postid=6665199" rel="nofollow">编辑</a> <a href="https://www.cnblogs.com/jiyukai/p/6665199.html#" onclick="AddToWz(6665199);return false;">收藏</a></div>
+	</div>
+	<script type="text/javascript">var allowComments=true,cb_blogId=344252,cb_entryId=6665199,cb_blogApp=currentBlogApp,cb_blogUserGuid='57a621b2-f212-e711-845c-ac853d9f53ac',cb_entryCreatedDate='2017/4/4 15:56:00';loadViewCount(cb_entryId);var cb_postType=1;var isMarkdown=false;</script>
+	
+</div><!--end: topics 文章、评论容器-->
+</div><a name="!comments"></a><div id="blog-comments-placeholder"><div id="comments_pager_top"></div>
+<br>
+<div class="feedback_area_title">评论列表</div>
+<div class="feedbackNoItems"></div>	
+
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+				<div class="feedbackManage">
+					&nbsp;&nbsp;<span class="comment_actions"></span>
+				</div>
+				<a href="https://www.cnblogs.com/jiyukai/p/6665199.html#4135122" class="layer">#1楼</a><a name="4135122" id="comment_anchor_4135122"></a>  <span class="comment_date">2018-12-09 14:26</span> <a id="a_comment_author_4135122" href="https://www.cnblogs.com/bbllw/" target="_blank">sunseeker</a> <a href="http://msg.cnblogs.com/send/sunseeker" title="发送站内短消息" class="sendMsg2This">&nbsp;</a>
+			</div>
+			<div class="feedbackCon">
+				<div id="comment_body_4135122" class="blog_comment_body">我的理解是不是：虚拟机栈中存放堆中实例对象的引用地址，然后堆中的对象存放的是方法区中类的信息得地址（包含字节码什么的）<br>虚拟机栈--&gt;堆--&gt;方法区</div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(4135122,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(4135122,&#39;Bury&#39;,this)">反对(0)</a></div>
+			</div>
+		</div>
+	
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+				<div class="feedbackManage">
+					&nbsp;&nbsp;<span class="comment_actions"></span>
+				</div>
+				<a href="https://www.cnblogs.com/jiyukai/p/6665199.html#4194459" class="layer">#2楼</a><a name="4194459" id="comment_anchor_4194459"></a><span id="comment-maxId" style="display:none;">4194459</span><span id="comment-maxDate" style="display:none;">2019/3/5 20:14:34</span>  <span class="comment_date">2019-03-05 20:14</span> <a id="a_comment_author_4194459" href="https://www.cnblogs.com/66it/" target="_blank">限量版爱</a> <a href="http://msg.cnblogs.com/send/%E9%99%90%E9%87%8F%E7%89%88%E7%88%B1" title="发送站内短消息" class="sendMsg2This">&nbsp;</a>
+			</div>
+			<div class="feedbackCon">
+				<div id="comment_body_4194459" class="blog_comment_body">推荐阅读：<a href="http://tryenough.com/java-memory-structure" target="_blank">http://tryenough.com/java-memory-structure</a></div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(4194459,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(4194459,&#39;Bury&#39;,this)">反对(0)</a></div><span id="comment_4194459_avatar" style="display:none;">http://pic.cnblogs.com/face/778724/20150627000924.png</span>
+			</div>
+		</div>
+	<div id="comments_pager_bottom"></div></div><script type="text/javascript">var commentManager = new blogCommentManager();commentManager.renderComments(0);</script>
+<div id="comment_form" class="commentform">
+<a name="commentform"></a>
+<div id="divCommentShow"></div>
+<div id="comment_nav"><span id="span_refresh_tips"></span><a href="javascript:void(0);" onclick="return RefreshCommentList();" id="lnk_RefreshComments" runat="server" clientidmode="Static">刷新评论</a><a href="https://www.cnblogs.com/jiyukai/p/6665199.html#" onclick="return RefreshPage();">刷新页面</a><a href="https://www.cnblogs.com/jiyukai/p/6665199.html#top">返回顶部</a></div>
+<div id="comment_form_container"><div class="login_tips">注册用户登录后才能发表评论，请 <a rel="nofollow" href="javascript:void(0);" class="underline" onclick="return login(&#39;commentform&#39;);">登录</a> 或 <a rel="nofollow" href="javascript:void(0);" class="underline" onclick="return register();">注册</a>，<a href="http://www.cnblogs.com/">访问</a>网站首页。</div></div>
+<div class="ad_text_commentbox" id="ad_text_under_commentbox"></div>
+<div id="ad_t2"><a href="https://edu.51cto.com/activity/19.html?source=bky" target="_blank" onclick="ga(&#39;send&#39;, &#39;event&#39;, &#39;Link&#39;, &#39;click&#39;, &#39;T2-51CTO&#39;)">【幸运】99%的人不知道我们有可以帮你薪资翻倍的秘笈！</a><br><a href="http://www.ucancode.com/index.htm" target="_blank" onclick="ga(&#39;send&#39;, &#39;event&#39;, &#39;Link&#39;, &#39;click&#39;, &#39;T2-工控&#39;)">【推荐】超50万C++/C#源码: 大型实时仿真组态图形源码</a><br><a href="https://cloud.baidu.com/campaign/purchase-2019/index.html?track=cp:dsp|pf:pc|pp:chui-bokeyuan-huodong-19caigouji-BCC-neiyeCH-190311|pu:neiyeCH-wenzilian|ci:2019cgj|kw:2105959" target="_blank" onclick="ga(&#39;send&#39;, &#39;event&#39;, &#39;Link&#39;, &#39;click&#39;, &#39;T2-百度云&#39;)">【推荐】百度云“猪”你开年行大运，红包疯狂拿</a><br><a href="https://ke.qq.com/adActivity.html?name=xiangxueketang2" target="_blank" onclick="ga(&#39;send&#39;, &#39;event&#39;, &#39;Link&#39;, &#39;click&#39;, &#39;T2-享学&#39;)">【推荐】55K刚面完Java架构师岗，这些技术你必须掌握</a><br></div>
+<div id="opt_under_post"></div>
+<script async="async" src="./JVM内存结构分析 - 纪煜楷 - 博客园_files/gpt.js"></script>
+<script>
+  var googletag = googletag || {};
+  googletag.cmd = googletag.cmd || [];
+</script>
+<script>
+  googletag.cmd.push(function() {
+        googletag.defineSlot('/1090369/C1', [300, 250], 'div-gpt-ad-1546353474406-0').addService(googletag.pubads());
+        googletag.defineSlot('/1090369/C2', [468, 60], 'div-gpt-ad-1539008685004-0').addService(googletag.pubads());
+        googletag.pubads().enableSingleRequest();
+        googletag.enableServices();
+  });
+</script>
+<div id="cnblogs_c1" class="c_ad_block">
+    <div id="div-gpt-ad-1546353474406-0" style="height:250px; width:300px;"></div>
+</div>
+<div id="under_post_news"><div class="itnews c_ad_block"><b>相关博文：</b><br>·  <a href="https://www.cnblogs.com/weixupeng/p/8662505.html" target="_blank" onclick="clickRecomItmem(8662505)">JVM内存结构</a><br>·  <a href="https://www.cnblogs.com/jichunhu/p/7064116.html" target="_blank" onclick="clickRecomItmem(7064116)">JVM（2）：JVM内存结构</a><br>·  <a href="https://www.cnblogs.com/tiancai/p/8204579.html" target="_blank" onclick="clickRecomItmem(8204579)">JVM内存结构</a><br>·  <a href="https://www.cnblogs.com/myclc/archive/2012/02/20/2360219.html" target="_blank" onclick="clickRecomItmem(2360219)">JVM内存</a><br>·  <a href="https://www.cnblogs.com/scofield-1987/p/7502969.html" target="_blank" onclick="clickRecomItmem(7502969)">JVM（二）JVM内存布局</a><br></div></div>
+<div id="cnblogs_c2" class="c_ad_block">
+    <div id="div-gpt-ad-1539008685004-0" style="height:60px; width:468px;"></div>
+</div>
+<div id="under_post_kb"><div class="itnews c_ad_block"><b>最新新闻</b>：<br> ·  <a href="https://news.cnblogs.com/n/621975/" target="_blank">小米9再度缺货取消发售 背后的供应链真相是什么？</a><br> ·  <a href="https://news.cnblogs.com/n/622004/" target="_blank">维生素B12能治疗帕金森病？</a><br> ·  <a href="https://news.cnblogs.com/n/621983/" target="_blank">机长解读：波音737MAX系列飞机，到底有没有硬伤？</a><br> ·  <a href="https://news.cnblogs.com/n/621978/" target="_blank">“职业打假”竟成产业链，专家：维权变“唯利”亟须遏制</a><br> ·  <a href="https://news.cnblogs.com/n/621994/" target="_blank">阿里巴巴收购家装公司匠多多</a><br>» <a href="http://news.cnblogs.com/" title="IT新闻" target="_blank">更多新闻...</a></div></div>
+<div id="HistoryToday" class="c_ad_block"></div>
+<script type="text/javascript">
+ if(enablePostBottom()) {
+    codeHighlight();
+    fixPostBody();
+    setTimeout(function () { incrementViewCount(cb_entryId); }, 50);
+    deliverT2();
+    deliverC1();
+    deliverC2();    
+    loadNewsAndKb();
+    loadBlogSignature();
+    LoadPostInfoBlock(cb_blogId, cb_entryId, cb_blogApp, cb_blogUserGuid);
+    GetPrevNextPost(cb_entryId, cb_blogId, cb_entryCreatedDate, cb_postType);
+    loadOptUnderPost();
+    GetHistoryToday(cb_blogId, cb_blogApp, cb_entryCreatedDate);  
+}
+</script>
+</div>
+
+    
+	</div><!--end: forFlow -->
+	</div><!--end: mainContent 主体内容容器-->
+
+	<div id="sideBar">
+		<div id="sideBarMain">
+			
+<!--done-->
+<div class="newsItem">
+<h3 class="catListTitle">公告</h3>
+	<div id="blog-news"><div id="profile_block">昵称：<a href="https://home.cnblogs.com/u/jiyukai/">纪煜楷</a><br>园龄：<a href="https://home.cnblogs.com/u/jiyukai/" title="入园时间：2017-03-27">1年11个月</a><br>粉丝：<a href="https://home.cnblogs.com/u/jiyukai/followers/">18</a><br>关注：<a href="https://home.cnblogs.com/u/jiyukai/followees/">0</a><div id="p_b_follow"><a href="javascript:void(0);" onclick="follow(&#39;57a621b2-f212-e711-845c-ac853d9f53ac&#39;)">+加关注</a></div><script>getFollowStatus('57a621b2-f212-e711-845c-ac853d9f53ac')</script></div></div><script type="text/javascript">loadBlogNews();</script>
+</div>
+
+			<div id="blog-calendar" style=""><table id="blogCalendar" class="Cal" cellspacing="0" cellpadding="0" title="Calendar">
+	<tbody><tr><td colspan="7"><table class="CalTitle" cellspacing="0">
+		<tbody><tr><td class="CalNextPrev"><a href="javascript:void(0);" onclick="loadBlogCalendar(&#39;2019/02/01&#39;);return false;">&lt;</a></td><td align="center">2019年3月</td><td class="CalNextPrev" align="right"><a href="javascript:void(0);" onclick="loadBlogCalendar(&#39;2019/04/01&#39;);return false;">&gt;</a></td></tr>
+	</tbody></table></td></tr><tr><th class="CalDayHeader" align="center" abbr="日" scope="col">日</th><th class="CalDayHeader" align="center" abbr="一" scope="col">一</th><th class="CalDayHeader" align="center" abbr="二" scope="col">二</th><th class="CalDayHeader" align="center" abbr="三" scope="col">三</th><th class="CalDayHeader" align="center" abbr="四" scope="col">四</th><th class="CalDayHeader" align="center" abbr="五" scope="col">五</th><th class="CalDayHeader" align="center" abbr="六" scope="col">六</th></tr><tr><td class="CalOtherMonthDay" align="center">24</td><td class="CalOtherMonthDay" align="center">25</td><td class="CalOtherMonthDay" align="center">26</td><td class="CalOtherMonthDay" align="center">27</td><td class="CalOtherMonthDay" align="center">28</td><td align="center">1</td><td class="CalWeekendDay" align="center">2</td></tr><tr><td class="CalWeekendDay" align="center">3</td><td align="center">4</td><td align="center">5</td><td align="center">6</td><td align="center">7</td><td align="center">8</td><td class="CalWeekendDay" align="center">9</td></tr><tr><td class="CalWeekendDay" align="center">10</td><td align="center">11</td><td align="center">12</td><td align="center">13</td><td align="center">14</td><td align="center">15</td><td class="CalWeekendDay" align="center">16</td></tr><tr><td class="CalWeekendDay" align="center">17</td><td class="CalTodayDay" align="center">18</td><td align="center">19</td><td align="center">20</td><td align="center">21</td><td align="center">22</td><td class="CalWeekendDay" align="center">23</td></tr><tr><td class="CalWeekendDay" align="center">24</td><td align="center">25</td><td align="center">26</td><td align="center">27</td><td align="center">28</td><td align="center">29</td><td class="CalWeekendDay" align="center">30</td></tr><tr><td class="CalWeekendDay" align="center">31</td><td class="CalOtherMonthDay" align="center">1</td><td class="CalOtherMonthDay" align="center">2</td><td class="CalOtherMonthDay" align="center">3</td><td class="CalOtherMonthDay" align="center">4</td><td class="CalOtherMonthDay" align="center">5</td><td class="CalOtherMonthDay" align="center">6</td></tr>
+</tbody></table></div><script type="text/javascript">loadBlogDefaultCalendar();</script>
+			
+			<div id="leftcontentcontainer">
+				<div id="blog-sidecolumn"><div id="sidebar_search" class="sidebar-block">
+<div id="sidebar_search" class="mySearch">
+<h3 class="catListTitle">搜索</h3>
+<div id="sidebar_search_box">
+<div id="widget_my_zzk" class="div_my_zzk"><input type="text" id="q" onkeydown="return zzk_go_enter(event);" class="input_my_zzk">&nbsp;<input onclick="zzk_go()" type="button" value="找找看" id="btnZzk" class="btn_my_zzk"></div>
+<div id="widget_my_google" class="div_my_zzk"><input type="text" name="google_q" id="google_q" onkeydown="return google_go_enter(event)" class="input_my_zzk">&nbsp;<input onclick="google_go()" type="button" value="谷歌搜索" class="btn_my_zzk"></div>
+</div>
+</div>
+
+</div><div id="sidebar_shortcut" class="sidebar-block">
+<div class="catListLink">
+<h3 class="catListTitle">常用链接</h3>
+<ul>
+<li><a href="https://www.cnblogs.com/jiyukai/p/" title="我的博客的随笔列表">我的随笔</a></li><li><a href="https://www.cnblogs.com/jiyukai/MyComments.html" title="我发表过的评论列表">我的评论</a></li><li><a href="https://www.cnblogs.com/jiyukai/OtherPosts.html" title="我评论过的随笔列表">我的参与</a></li><li><a href="https://www.cnblogs.com/jiyukai/RecentComments.html" title="我的博客的评论列表">最新评论</a></li><li><a href="https://www.cnblogs.com/jiyukai/tag/" title="我的博客的标签列表">我的标签</a></li>
+</ul>
+<div id="itemListLin_con" style="display:none;">
+<ul>
+
+</ul>
+</div>
+</div></div><div id="sidebar_recentposts" class="sidebar-block">
+<div class="catListEssay">
+<h3 class="catListTitle">最新随笔</h3>
+<ul>
+<li><a href="https://www.cnblogs.com/jiyukai/p/9472301.html">1. storm并发机制，通信机制，任务提交</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9471944.html">2. storm介绍，核心组件，编程模型</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9465719.html">3. Kafka核心组件</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9463905.html">4. JMS规范与Kafka</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9463626.html">5. 分布式最终一致性事务</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9462312.html">6. 分布式强一致性事务</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9460373.html">7. 分布式服务框架（二）</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9459983.html">8. 分布式服务框架（一）</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9459535.html">9. Mybatis的多对多映射</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9458573.html">10. Mybatis的一对多映射</a></li>
+</ul>
+</div>
+</div><div id="sidebar_toptags" class="sidebar-block"></div><div id="sidebar_categories">
+<div id="sidebar_postcategory" class="catListPostCategory sidebar-block">
+<h3 class="catListTitle">随笔分类<span style="font-size:11px;font-weight:normal">(81)</span></h3>
+
+<ul>
+
+<li><a id="CatList_LinkList_0_Link_0" href="https://www.cnblogs.com/jiyukai/category/982823.html">Java基础(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_1" href="https://www.cnblogs.com/jiyukai/category/974050.html">Java设计模式(3)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_2" href="https://www.cnblogs.com/jiyukai/category/974052.html">JVM性能调优(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_3" href="https://www.cnblogs.com/jiyukai/category/974036.html">JVM运行机制与原理剖析(5)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_4" href="https://www.cnblogs.com/jiyukai/category/1270089.html">kafka(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_5" href="https://www.cnblogs.com/jiyukai/category/974114.html">Linux(7)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_6" href="https://www.cnblogs.com/jiyukai/category/1245174.html">log4j2(3)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_7" href="https://www.cnblogs.com/jiyukai/category/974102.html">Mybatis(6)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_8" href="https://www.cnblogs.com/jiyukai/category/974037.html">MySQL(3)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_9" href="https://www.cnblogs.com/jiyukai/category/974103.html">Nosql必学之MongoDB(12)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_10" href="https://www.cnblogs.com/jiyukai/category/1245176.html">Serverless(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_11" href="https://www.cnblogs.com/jiyukai/category/974108.html">Spring(9)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_12" href="https://www.cnblogs.com/jiyukai/category/975519.html">SpringBoot(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_13" href="https://www.cnblogs.com/jiyukai/category/974109.html">SpringMVC(4)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_14" href="https://www.cnblogs.com/jiyukai/category/1270090.html">storm(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_15" href="https://www.cnblogs.com/jiyukai/category/1270088.html">terraform(1)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_16" href="https://www.cnblogs.com/jiyukai/category/974104.html">Webservice(CXF)(4)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_17" href="https://www.cnblogs.com/jiyukai/category/974110.html">Zookeeper(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_18" href="https://www.cnblogs.com/jiyukai/category/976140.html">单点登录(1)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_19" href="https://www.cnblogs.com/jiyukai/category/974112.html">分布式服务框架(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_20" href="https://www.cnblogs.com/jiyukai/category/974105.html">分布式事务(2)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_21" href="https://www.cnblogs.com/jiyukai/category/1245175.html">灰度发布(1)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_22" href="https://www.cnblogs.com/jiyukai/category/1265045.html">切面编程(3)</a> </li>
+
+<li><a id="CatList_LinkList_0_Link_23" href="https://www.cnblogs.com/jiyukai/category/1265447.html">事务分组(1)</a> </li>
+
+</ul>
+
+</div>
+
+<div id="sidebar_postarchive" class="catListPostArchive sidebar-block">
+<h3 class="catListTitle">随笔档案<span style="font-size:11px;font-weight:normal">(80)</span></h3>
+
+<ul>
+
+<li><a id="CatList_LinkList_1_Link_0" href="https://www.cnblogs.com/jiyukai/archive/2018/08.html">2018年8月 (22)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_1" href="https://www.cnblogs.com/jiyukai/archive/2018/07.html">2018年7月 (14)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_2" href="https://www.cnblogs.com/jiyukai/archive/2018/06.html">2018年6月 (4)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_3" href="https://www.cnblogs.com/jiyukai/archive/2017/10.html">2017年10月 (3)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_4" href="https://www.cnblogs.com/jiyukai/archive/2017/09.html">2017年9月 (3)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_5" href="https://www.cnblogs.com/jiyukai/archive/2017/08.html">2017年8月 (8)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_6" href="https://www.cnblogs.com/jiyukai/archive/2017/07.html">2017年7月 (4)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_7" href="https://www.cnblogs.com/jiyukai/archive/2017/06.html">2017年6月 (13)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_8" href="https://www.cnblogs.com/jiyukai/archive/2017/05.html">2017年5月 (2)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_9" href="https://www.cnblogs.com/jiyukai/archive/2017/04.html">2017年4月 (3)</a> </li>
+
+<li><a id="CatList_LinkList_1_Link_10" href="https://www.cnblogs.com/jiyukai/archive/2017/03.html">2017年3月 (4)</a> </li>
+
+</ul>
+
+</div>
+
+</div><div id="sidebar_recentcomments" class="sidebar-block"><div id="recent_comments_wrap">
+<div class="catListComment">
+<h3 class="catListTitle">最新评论</h3>
+
+	<div id="RecentCommentsBlock"><ul>
+        <li class="recent_comment_title"><a href="https://www.cnblogs.com/jiyukai/p/6665199.html#4194459">1. Re:JVM内存结构分析</a></li>
+        <li class="recent_comment_body">推荐阅读：<a href="https://www.cnblogs.com/jiyukai/p/6665199.html" target="_blank"></a></li>
+        <li class="recent_comment_author">--限量版爱</li>
+        <li class="recent_comment_title"><a href="https://www.cnblogs.com/jiyukai/p/9460373.html#4166761">2. Re:分布式服务框架（二）</a></li>
+        <li class="recent_comment_body">赞，讲的非常通俗易懂</li>
+        <li class="recent_comment_author">--haidong_zhang</li>
+        <li class="recent_comment_title"><a href="https://www.cnblogs.com/jiyukai/p/6665199.html#4135122">3. Re:JVM内存结构分析</a></li>
+        <li class="recent_comment_body">我的理解是不是：虚拟机栈中存放堆中实例对象的引用地址，然后堆中的对象存放的是方法区中类的信息得地址（包含字节码什么的）<br>虚拟机栈--&gt;堆--&gt;方法区</li>
+        <li class="recent_comment_author">--sunseeker</li>
+        <li class="recent_comment_title"><a href="https://www.cnblogs.com/jiyukai/p/7191202.html#4096149">4. Re:MongoDB的分布式部署</a></li>
+        <li class="recent_comment_body">请问下配置服务器是什么，做什么用的</li>
+        <li class="recent_comment_author">--勇哥哥</li>
+        <li class="recent_comment_title"><a href="https://www.cnblogs.com/jiyukai/p/6820623.html#3743198">5. Re:Spring基本功能详解</a></li>
+        <li class="recent_comment_body">天天坚持写博客啊，加油，以后我学习就看你的博客就够了[奸笑]</li>
+        <li class="recent_comment_author">--我用双手成就自己的梦想</li>
+</ul>
+</div>
+</div>
+</div></div><div id="sidebar_topviewedposts" class="sidebar-block"><div id="topview_posts_wrap">
+<div class="catListView">
+<h3 class="catListTitle">阅读排行榜</h3>
+	<div id="TopViewPostsBlock"><ul><li><a href="https://www.cnblogs.com/jiyukai/p/7629498.html">1. SpringMVC工作流程(36557)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6665199.html">2. JVM内存结构分析(12742)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6958744.html">3. Java静态代理和动态代理(9225)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6980017.html">4. MongoDB的数据备份与恢复(8949)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/7191202.html">5. MongoDB的分布式部署(7984)</a></li></ul></div>
+</div>
+</div></div><div id="sidebar_topcommentedposts" class="sidebar-block"><div id="topfeedback_posts_wrap">
+<div class="catListFeedback">
+<h3 class="catListTitle">评论排行榜</h3>
+	<div id="TopFeedbackPostsBlock"><ul><li><a href="https://www.cnblogs.com/jiyukai/p/6665199.html">1. JVM内存结构分析(2)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/7191202.html">2. MongoDB的分布式部署(1)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/9460373.html">3. 分布式服务框架（二）(1)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6820623.html">4. Spring基本功能-依赖注入(1)</a></li></ul></div>
+</div>
+</div></div><div id="sidebar_topdiggedposts" class="sidebar-block"><div id="topdigg_posts_wrap">
+<div class="catListView">
+<h3 class="catListTitle">推荐排行榜</h3>
+<div id="TopDiggPostsBlock"><ul><li><a href="https://www.cnblogs.com/jiyukai/p/7629498.html">1. SpringMVC工作流程(9)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6958744.html">2. Java静态代理和动态代理(4)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6665199.html">3. JVM内存结构分析(2)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/7256344.html">4. 学习Zookeeper需要了解的专业名词(1)</a></li><li><a href="https://www.cnblogs.com/jiyukai/p/6820623.html">5. Spring基本功能-依赖注入(1)</a></li></ul></div>
+</div></div></div></div><script type="text/javascript">loadBlogSideColumn();</script>
+			</div>
+			
+		</div><!--end: sideBarMain -->
+	</div><!--end: sideBar 侧边栏容器 -->
+	<div class="clear"></div>
+	</div><!--end: main -->
+	<div class="clear"></div>
+	<div id="footer">
+		
+<!--done-->
+Copyright ©2019 纪煜楷
+	</div><!--end: footer -->
+</div><!--end: home 自定义的最大容器 -->
+
+
+
+</body></html>
